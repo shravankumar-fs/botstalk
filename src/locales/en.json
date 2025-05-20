@@ -1,0 +1,26 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry"
+  },
+  "home": {
+    "title": "Bot Conversation",
+    "startConversation": "Start Conversation",
+    "stopConversation": "Stop Conversation",
+    "turns": "Turns:",
+    "emptyState": {
+      "title": "Bot Conversation",
+      "description": "Click 'Start Conversation' to begin a chat between Bot A and Bot B. They'll take turns responding to each other."
+    }
+  },
+  "message": {
+    "thinking": "Thinking..."
+  },
+  "bot": {
+    "label": "Bot {{id}}"
+  },
+  "errors": {
+    "sendMessage": "Error sending message"
+  }
+}

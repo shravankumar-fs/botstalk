@@ -1,0 +1,20 @@
+.message {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  margin-bottom: 16px;
+  background-color: var(--message-bg);
+  color: var(--message-text);
+}
+
+.messageHeader {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.messageText {
+  line-height: 1.5;
+  word-wrap: break-word;
+}

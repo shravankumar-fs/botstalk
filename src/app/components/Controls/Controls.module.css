@@ -1,0 +1,57 @@
+.controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.buttonPrimary {
+  composes: button;
+  background-color: var(--button-bg, #28a745);
+  color: white;
+}
+
+.buttonPrimary:hover {
+  background-color: var(--button-hover, #218838);
+}
+
+.buttonPrimary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.buttonStop {
+  --button-bg: #ef4444;
+  --button-hover: #dc2626;
+}
+
+.turnsInput {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  width: 60px;
+  background-color: var(--input-bg, white);
+}
+
+.turnsInput:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+}
