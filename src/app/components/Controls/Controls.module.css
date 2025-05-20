@@ -43,6 +43,33 @@
   --button-hover: #dc2626;
 }
 
+.controlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.controls input[type="number"] {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  width: 60px;
+  background-color: var(--input-bg, white);
+}
+
+.controls input[type="range"] {
+  width: 100%;
+  margin: 10px 0;
+}
+
 .turnsInput {
   padding: 6px 8px;
   border: 1px solid #d1d5db;
