@@ -23,6 +23,7 @@ export interface ConversationState {
   history: ChatMsg[];
   currentTurn: number;
   maxTurns: number;
+  currentBotIndex: number;
 }
 
 export interface SendMessageParams {

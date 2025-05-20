@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useSendMessage } from '@/hooks/useChatApi';
 import { Message } from '../Message';
 import { Controls } from '../Controls';
@@ -7,148 +7,249 @@ import { LoadingIndicator } from '../LoadingIndicator';
 import { useI18n } from '@/hooks/useI18n';
 import { getRandomBots, type BotConfig } from '@/config/botConfig';
 import { DEFAULT_TURNS, getBotPrompt, getInitialMessage } from './constants';
-import { ChatMsg, ConversationState } from './types';
+import { ConversationState } from './types';
+
+// Utility function to clean up bot responses
+const cleanBotResponse = (text: string): string => {
+  if (!text) return '';
+  // Remove quotes and hashtags
+  return text
+    .replace(/["']/g, '') // Remove all quotes
+    .replace(/#\w+\s?/g, '') // Remove hashtags
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim();
+};
 import styles from './Home.module.css';
 
 const Home = () => {
   const { getText } = useI18n();
-  const [messages, setMessages] = useState<
-    Array<{
-      speaker: string;
-      text: string;
-      botId: string;
-      avatar: string;
-    }>
-  >([]);
-
   const [turns, setTurns] = useState<number>(DEFAULT_TURNS);
+  const [botCount, setBotCount] = useState<number>(2); // Default to 2 bots
   const [topic, setTopic] = useState('artificial intelligence');
   const [conversationActive, setConversationActive] = useState(false);
   const topicInputRef = useRef<HTMLInputElement>(null);
   const [bots, setBots] = useState<BotConfig[]>([]);
+  const [conversationState, setConversationState] = useState<
+    ConversationState & { isProcessing: boolean; lastMessageTime?: number }
+  >({
+    history: [],
+    currentTurn: 0,
+    maxTurns: 10,
+    currentBotIndex: 0,
+    isProcessing: false,
+    lastMessageTime: 0,
+  });
 
-  // Initialize with 2 random bots
+  // Derive messages from conversation state
+  const messages = useMemo(() => {
+    return conversationState.history.map((msg) => {
+      const bot = bots.find((b) => b.id === msg.botId);
+      return {
+        speaker: bot?.name || 'assistant',
+        text: msg.content,
+        botId: msg.botId,
+        avatar: bot?.avatar || '',
+      };
+    });
+  }, [conversationState.history, bots]);
+
   // Get new random bots
-  const handleNewBots = useCallback(() => {
-    setBots(getRandomBots(2));
+  const handleNewBots = useCallback((count: number) => {
+    setBots(getRandomBots(count));
   }, []);
 
-  // Initialize with 2 random bots
-  useEffect(() => {
-    handleNewBots();
-  }, [handleNewBots]);
-
-  const [conversationState, setConversationState] = useState<ConversationState>(
-    {
-      history: [],
-      currentTurn: 0,
-      maxTurns: DEFAULT_TURNS,
-    }
+  // Handle bot count changes
+  const handleBotCountChange = useCallback(
+    (count: number) => {
+      const newCount = Math.max(2, Math.min(4, count)); // Limit between 2 and 4 bots
+      setBotCount(newCount);
+      handleNewBots(newCount);
+    },
+    [handleNewBots]
   );
 
-  const { mutate: sendMessage, isPending } = useSendMessage({
-    onSuccess: (response, { botId }) => {
+  // Initialize with random bots
+  useEffect(() => {
+    handleNewBots(botCount);
+  }, [handleNewBots, botCount]);
+
+  const { mutate: sendMessage } = useSendMessage({
+    onSuccess: (response, { botId, lastSpeaker }) => {
       setConversationState((prevState) => {
-        const { history, currentTurn, maxTurns } = prevState;
-        const currentBot = bots[currentTurn % bots.length];
-        const content = response.content;
-        const isLastTurn = currentTurn >= maxTurns * bots.length - 1;
+        const { history, currentTurn, maxTurns, currentBotIndex } = prevState;
+        const currentBot = bots.find((bot) => bot.id === botId);
+        if (!currentBot) return prevState;
 
-        // Update the message in a single batch with React's state update
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-          // Only add new message if the last message is different
-          if (
-            !lastMessage ||
-            lastMessage.text !== content ||
-            lastMessage.botId !== currentBot.id
-          ) {
-            return [
-              ...prev,
-              {
-                speaker: currentBot.name,
-                text: content,
-                botId: currentBot.id,
-                avatar: currentBot.avatar,
-              },
-            ];
+        // Extract content from the response object
+        let responseContent = typeof response === 'string' ? response : response.content;
+        
+        // Clean up the response
+        responseContent = cleanBotResponse(responseContent);
+        
+        // Format the response to include @mentions
+        let formattedContent = responseContent;
+        if (lastSpeaker && lastSpeaker !== 'Everyone') {
+          // If the response doesn't already mention someone, add the mention
+          if (!formattedContent.startsWith('@')) {
+            formattedContent = `@${lastSpeaker} ${formattedContent}`;
           }
-          return prev;
-        });
+        }
 
-        // If we've reached the maximum number of turns, stop the conversation
-        if (isLastTurn) {
+        const newHistory = [
+          ...history,
+          { 
+            role: 'assistant', 
+            content: formattedContent, 
+            botId,
+            timestamp: Date.now()
+          },
+        ];
+        const isConversationOver = currentTurn >= maxTurns - 1;
+
+        if (isConversationOver) {
           setConversationActive(false);
           return {
             ...prevState,
-            history: [
-              ...history,
-              { role: 'assistant', content, botId: currentBot.id },
-            ],
-            currentTurn: currentTurn + 1,
+            history: newHistory,
+            isProcessing: false,
+            lastMessageTime: Date.now(),
           };
         }
 
-        // Prepare the next message
-        const nextBot = bots[(currentTurn + 1) % bots.length];
-        const nextMessage = {
-          role: 'user' as const,
-          content: getInitialMessage(topic),
-          botId: nextBot.id,
-        };
-
-        // Update the history for the next turn
-        const updatedHistory = [
-          ...history,
-          { role: 'assistant' as const, content, botId: currentBot.id },
-          nextMessage,
-        ];
-
-        // Send the next message automatically
-        setTimeout(() => {
-          sendMessage({
-            messages: [
-              { role: 'system', content: getBotPrompt(nextBot, topic) },
-              ...updatedHistory,
-            ],
-            botId: nextBot.id,
-          });
-        }, 0);
+        // Move to next bot
+        const nextBotIndex = (currentBotIndex + 1) % bots.length;
+        const nextTurn = nextBotIndex === 0 ? currentTurn + 1 : currentTurn;
 
         return {
-          history: updatedHistory,
-          currentTurn: currentTurn + 1,
-          maxTurns,
+          ...prevState,
+          history: newHistory,
+          currentTurn: nextTurn,
+          currentBotIndex: nextBotIndex,
+          isProcessing: false,
+          lastMessageTime: Date.now(),
         };
       });
     },
     onError: (error) => {
       console.error('Error sending message:', error);
-      setConversationActive(false);
+      setConversationState((prev) => ({
+        ...prev,
+        isProcessing: false,
+      }));
     },
   });
 
-  const handleSendMessage = useCallback(
-    (history: ChatMsg[]) => {
-      const currentBot = bots[conversationState.currentTurn % bots.length];
-      const systemPrompt = getBotPrompt(currentBot, topic);
+  // Process next bot's turn
+  const processBotTurn = useCallback(() => {
+    if (conversationState.isProcessing || !conversationActive) return;
 
-      const messages: ChatMsg[] = [
-        { role: 'system', content: systemPrompt },
-        ...history,
-      ];
+    const { currentBotIndex, currentTurn, maxTurns, history } = conversationState;
+    const currentBot = bots[currentBotIndex];
 
-      sendMessage({ messages, botId: currentBot.id });
-    },
-    [sendMessage, topic, conversationState.currentTurn, bots]
-  );
+    if (!currentBot || currentTurn >= maxTurns) {
+      setConversationActive(false);
+      return;
+    }
 
+    // Check if bot should skip their turn
+    const shouldSkip = Math.random() < (currentBot.skipQuotient || 0);
+
+    if (shouldSkip) {
+      // Move to next bot
+      const nextBotIndex = (currentBotIndex + 1) % bots.length;
+      const nextTurn = nextBotIndex === 0 ? currentTurn + 1 : currentTurn;
+
+      setConversationState((prev) => ({
+        ...prev,
+        currentBotIndex: nextBotIndex,
+        currentTurn: nextTurn,
+        lastMessageTime: Date.now(),
+      }));
+      return;
+    }
+
+    // Get the last message that wasn't from the current bot
+    const lastMessage = [...history].reverse().find(msg => msg.botId !== currentBot.id);
+    const lastSpeaker = lastMessage ? bots.find(b => b.id === lastMessage?.botId)?.name : 'Everyone';
+    
+    // For fact checker, always include the last message if it's not their own
+    let contextMessages = [...history].slice(-5); // Keep last 5 messages for context
+    
+    // If this is the fact checker, make sure we have the message to fact check
+    if (currentBot.id === 'factchecker' && lastMessage) {
+      contextMessages = [lastMessage];
+    }
+    
+    // Add the last speaker's name to the context
+    const contextWithSpeaker = {
+      lastSpeaker,
+      messages: contextMessages
+    };
+
+    setConversationState((prev) => ({
+      ...prev,
+      isProcessing: true,
+    }));
+
+    // Prepare the prompt with context
+    let prompt = getBotPrompt(currentBot, topic);
+    
+    // Add context about the last speaker
+    if (lastSpeaker) {
+      prompt += `\n\nYou are replying to @${lastSpeaker}'s message.`;
+      
+      // If this is the fact checker, add specific instructions
+      if (currentBot.id === 'factchecker' && lastMessage) {
+        const lastSpeakerBot = bots.find(b => b.id === lastMessage.botId);
+        prompt += `\n\nFact check this message from @${lastSpeaker}: "${lastMessage.content}"`;
+        if (lastSpeakerBot?.instructions) {
+          prompt += `\n\nAbout @${lastSpeaker}: ${lastSpeakerBot.instructions.behaviorDescription}`;
+        }
+      }
+    }
+    
+    sendMessage(
+      {
+        messages: [
+          {
+            role: 'system',
+            content: prompt,
+          },
+          ...contextMessages.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+            name: bots.find((b) => b.id === msg.botId)?.name,
+          })),
+        ],
+        botId: currentBot.id,
+        lastSpeaker: lastSpeaker || 'Everyone',
+      },
+      {
+        onSuccess: (response) => {
+          // Response is handled in the onSuccess callback
+        },
+      }
+    );
+  }, [bots, conversationState, conversationActive, topic, sendMessage]);
+
+  // Process next bot's turn when conversation is active
+  useEffect(() => {
+    if (!conversationActive || conversationState.isProcessing) return;
+
+    const timeSinceLastMessage = Date.now() - conversationState.lastMessageTime;
+    const delay = Math.max(0, 2000 - timeSinceLastMessage); // At least 2 seconds between messages
+
+    const timer = setTimeout(() => {
+      processBotTurn();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [conversationActive, conversationState, processBotTurn]);
+
+  // Start a new conversation
   const startConversation = useCallback(
     (turnsCount: number) => {
-      if (!topic.trim()) {
-        alert('Please enter a topic');
-        return;
-      }
+      if (conversationActive) return;
 
       if (bots.length < 2) {
         alert('Please select at least 2 bots');
@@ -156,35 +257,26 @@ const Home = () => {
       }
 
       setConversationActive(true);
-      setMessages([]);
 
-      const firstBot = bots[0];
-      const systemPrompt = getBotPrompt(firstBot, topic);
       const initialMessage = getInitialMessage(topic);
 
-      const initialHistory: ChatMsg[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: initialMessage, botId: firstBot.id },
-      ];
-
-      const newState = {
-        history: initialHistory,
+      // Set initial state with system message
+      setConversationState({
+        history: [
+          {
+            role: 'system',
+            content: initialMessage,
+            botId: 'system',
+          },
+        ],
         currentTurn: 0,
         maxTurns: turnsCount,
-      };
-
-      setConversationState(newState);
-
-      // Send the first message
-      sendMessage({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: initialMessage, botId: firstBot.id },
-        ],
-        botId: firstBot.id,
+        currentBotIndex: 0,
+        isProcessing: false,
+        lastMessageTime: Date.now(),
       });
     },
-    [topic, bots, sendMessage]
+    [topic, bots, conversationActive]
   );
 
   const handleStopConversation = useCallback(() => {
@@ -226,7 +318,7 @@ const Home = () => {
             </div>
           ))}
           <button
-            onClick={handleNewBots}
+            onClick={() => handleNewBots(botCount)}
             className={styles.newBotsButton}
             disabled={conversationActive}
           >
@@ -234,16 +326,18 @@ const Home = () => {
           </button>
         </div>
         <Controls
-          isPending={isPending}
+          isPending={conversationState.isProcessing}
           isActive={conversationActive}
           turns={turns}
+          botCount={botCount}
           onStart={() => startConversation(turns)}
           onStop={handleStopConversation}
           onTurnsChange={handleTurnsChange}
+          onBotCountChange={handleBotCountChange}
         />
       </div>
 
-      {isPending && <LoadingIndicator />}
+      {conversationState.isProcessing && <LoadingIndicator />}
 
       <div className={styles.conversationContainer}>
         {messages.length > 0 ? (
@@ -251,7 +345,10 @@ const Home = () => {
             {messages.map((message, index) => {
               const bot = bots.find((b) => b.id === message.botId);
               return (
-                <div key={`${message.botId}-${index}`} className={styles.messageContainer}>
+                <div
+                  key={`${message.botId}-${index}`}
+                  className={styles.messageContainer}
+                >
                   <Message
                     message={{
                       speaker: message.speaker,
@@ -264,14 +361,14 @@ const Home = () => {
                 </div>
               );
             })}
-            {isPending && (
+            {conversationState.isProcessing && (
               <div className={styles.messageContainer}>
                 <Message
                   message={{
                     speaker: 'assistant',
                     text: '...',
-                    botId: bots[conversationState.currentTurn % bots.length]?.id,
-                    avatar: bots[conversationState.currentTurn % bots.length]?.avatar
+                    botId: bots[conversationState.currentBotIndex]?.id,
+                    avatar: bots[conversationState.currentBotIndex]?.avatar,
                   }}
                   bot={bots[conversationState.currentTurn % bots.length]}
                 />
